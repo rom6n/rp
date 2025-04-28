@@ -13,6 +13,12 @@ use tower_http::{services::ServeFile, trace::TraceLayer, compression::Compressio
 use std::{convert::Infallible, io, net::SocketAddr};
 use tracing::info_span;
 
+mod middlewares;
+use middlewares::*;
+
+mod services;
+use services::jwt_service::*;
+
 mod models;
 use models::*;
 
