@@ -1,5 +1,7 @@
 use axum::{extract::{FromRequest, FromRequestParts}, http::{HeaderMap, request::Parts}};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExampleData {
@@ -11,7 +13,7 @@ pub struct ExampleData {
 pub struct Foo(pub &'static str);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Claims {
+pub struct  Claims {
     pub sub: String,
     pub iss: String,
     pub aud: String,
@@ -23,4 +25,11 @@ pub struct Claims {
 
 pub struct Jwt;
 
+
+#[derive(Debug, Clone)]
 pub struct AuthLayer;
+
+#[derive(Debug, Clone)]
+pub struct AuthLayerService<S> {
+    pub inner: Option<S>
+}

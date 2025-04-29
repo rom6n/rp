@@ -67,6 +67,7 @@ async fn main() {
 
                 .layer(
                     ServiceBuilder::new()
+                        .layer(AuthLayer)
                         .layer(DefaultBodyLimit::max(4096))
                         .layer(TraceLayer::new_for_http().make_span_with(|_req: &Request<_>| {
                             info_span!("request: ", method = %_req.method(), uri = %_req.uri(), versions = ?_req.version())
