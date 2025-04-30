@@ -27,7 +27,7 @@ async fn refresh_key() -> Result<String, std::io::Error> {
 
 
 impl Jwt {
-    pub async fn create_acc_token(id: i32, role: &str) -> Result<String, JwtError> {
+    pub async fn create_acc_token(id: &str, role: &str) -> Result<String, JwtError> {
         let refresh_key = match refresh_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
@@ -88,7 +88,7 @@ impl Jwt {
 
 
 
-    pub async fn create_ref_token(id: i32, role: &str) -> Result<String, JwtError> {
+    pub async fn create_ref_token(id: &str, role: &str) -> Result<String, JwtError> {
         let refresh_key = match refresh_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {

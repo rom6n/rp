@@ -33,3 +33,19 @@ pub struct AuthLayer;
 pub struct AuthLayerService<S> {
     pub inner: Option<S>
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct AuthFromRefresh;
+
+#[derive(Debug, Clone)]
+pub struct AuthFromRefreshService<S> {
+    pub inner: Option<S>
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct UpdateTokens;
+
+#[derive(Debug, Clone)]
+pub struct UpdateTokensService<S> {
+    pub inner: Option<S>
+}

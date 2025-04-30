@@ -67,10 +67,13 @@ async fn main() {
 
                 .layer(
                     ServiceBuilder::new()
+                        .layer(UpdateTokens)
+                        .layer(AuthFromRefresh)
                         .layer(AuthLayer)
                         .layer(DefaultBodyLimit::max(4096))
                         .layer(TraceLayer::new_for_http().make_span_with(|_req: &Request<_>| {
-                            info_span!("request: ", method = %_req.method(), uri = %_req.uri(), versions = ?_req.version())
+                            info_span!("request: ", method = %_req.method(), uri = %_req.uri(), versions = ?_req.version());
+                            info_span!("\n")
                         }))
                         .layer(CompressionLayer::new())
                         .layer(ConcurrencyLimitLayer::new(250))

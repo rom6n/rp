@@ -58,19 +58,24 @@ where
         let mut future = self.inner.take().expect("Service called after completion");
 
         Box::pin(async move {
-            let mut authorized = false;
-            let mut claims = String::new();
-
-            if let Ok(val) = Jwt::verify_acc_token(&access_token).await {
-                authorized = true;
-                claims = if let Ok(serde_claims) = to_string(&format!("{} {} {}", val.sub, val.role, val.exp)) {serde_claims} else {String::new()};
-            }
             info!("AuthLayer работает!");
-            if authorized && !claims.is_empty() {
-                req.headers_mut().insert("Authorized", HeaderValue::from_static("true"));
-                req.headers_mut().insert("claims", HeaderValue::from_str(&claims)
-                    .unwrap_or(HeaderValue::from_static("")));
+            
+            if let Ok(val) = Jwt::verify_acc_token(&access_token).await {
+                let claims = if let Ok(serde_claims) = to_string(&format!("{} {}", val.sub, val.role)) 
+                    {serde_claims} else {String::new()};
+
+                req.headers_mut().insert("AccessExp", 
+                HeaderValue::from_str(&format!("{}", val.exp))
+                    .unwrap_or(HeaderValue::from_static("0")));
+
+                if !claims.is_empty() {
+                    req.headers_mut().insert("Authorized", HeaderValue::from_static("true"));
+                    req.headers_mut().insert("Claims", HeaderValue::from_str(&claims)
+                        .unwrap_or(HeaderValue::from_static("")));
+                }
             }
+            
+
             let response = future.call(req).await?;
             Ok(response)
         })
