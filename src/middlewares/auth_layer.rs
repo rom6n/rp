@@ -1,4 +1,4 @@
-use axum::{body::Body, response::Response, extract::Request};
+use axum::{body::Body, response::{Response, Redirect}, extract::Request};
 use futures_util::future::BoxFuture;
 use http::{HeaderValue};
 use tower::{Service, Layer};
@@ -8,18 +8,18 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Mutex};
 use axum_extra::extract::cookie::CookieJar;
-use cookie::Cookie;
+use cookie::{Cookie, SameSite};
 use serde_json::{to_string, from_str};
 use log::info;
+use chrono::{Utc, Duration};
 
-use crate::models::{AuthLayer, AuthLayerService, Jwt, Claims};
-use crate::services::jwt_service::*;
+use crate::models::{AuthLayer, AuthLayerService, Claims, DataBase, Jwt};
 
 
 impl<S> Layer<S> for AuthLayer {
     type Service = AuthLayerService<S>;
     fn layer(&self, inner: S) -> Self::Service {
-        AuthLayerService {inner: Some(inner)}
+        AuthLayerService {inner: Some(inner), db_conn: self.db_conn.clone()}
     }
 }
 
@@ -44,39 +44,67 @@ where
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         let jar = CookieJar::from_headers(req.headers());
 
-        let access_token = if let Some(token) = jar.get("Authorization") {
-            if let Some(token_str) = token.to_string().strip_prefix("Bearer ") {
-                token_str.to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        
         let mut future = self.inner.take().expect("Service called after completion");
+        let conn = self.db_conn.clone();
 
         Box::pin(async move {
             info!("AuthLayer работает!");
+            let mut n_access_token = String::new();
+            let mut n_refresh_token = String::new();
+            let pool = conn;
+            let access_token = Jwt::get_access_token(&jar).await;
             
-            if let Ok(val) = Jwt::verify_acc_token(&access_token).await {
-                let claims = if let Ok(serde_claims) = to_string(&format!("{} {}", val.sub, val.role)) 
-                    {serde_claims} else {String::new()};
 
-                req.headers_mut().insert("AccessExp", 
-                HeaderValue::from_str(&format!("{}", val.exp))
-                    .unwrap_or(HeaderValue::from_static("0")));
+            if let Ok(claims) = Jwt::verify_acc_token(&access_token).await {
+                req.extensions_mut().insert(claims);
+                
+            } else {
+                let refresh_token = Jwt::get_refresh_token(&jar).await;
 
-                if !claims.is_empty() {
-                    req.headers_mut().insert("Authorized", HeaderValue::from_static("true"));
-                    req.headers_mut().insert("Claims", HeaderValue::from_str(&claims)
-                        .unwrap_or(HeaderValue::from_static("")));
-                }
+                if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, &pool).await {
+
+                    if let Ok(access_token) = Jwt::create_acc_token(&claims.sub, &claims.role).await {
+                        n_access_token = access_token.clone();
+
+                        if let Ok(access_claims) = Jwt::verify_acc_token(&access_token).await {
+                            req.extensions_mut().insert(access_claims);
+                        }
+
+                        DataBase::del_ref_token(&claims.sub, &claims.jti, &pool).await;
+
+                        if let Ok(refresh_token) = Jwt::create_ref_token(&claims.sub, &claims.role).await {
+                            n_refresh_token = refresh_token
+                        }
+                    }
+                } 
             }
-            
 
-            let response = future.call(req).await?;
+            let mut response = future.call(req).await?;
+
+            if !n_access_token.is_empty() {
+                let mut cookie = Cookie::new("AccessToken", n_access_token);
+                cookie.set_http_only(true);
+                cookie.set_secure(false);
+                cookie.set_same_site(SameSite::Strict);
+                //cookie.set_path("/"); потом 
+
+                response.headers_mut()
+                    .insert(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
+                    .unwrap_or(HeaderValue::from_static("")));
+            }
+
+            if !n_refresh_token.is_empty() {
+                let mut cookie = Cookie::new("RefreshToken", n_refresh_token);
+                cookie.set_http_only(true);
+                cookie.set_secure(false);
+                cookie.set_same_site(SameSite::Strict);
+                //cookie.set_path("/"); потом 
+
+                response.headers_mut()
+                    .insert(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
+                    .unwrap_or(HeaderValue::from_static("")));
+            }
+
             Ok(response)
         })
     }

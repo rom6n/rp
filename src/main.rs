@@ -12,6 +12,7 @@ use tower::{buffer::BufferLayer, layer, limit::ConcurrencyLimitLayer, load_shed:
 use tower_http::{services::ServeFile, trace::TraceLayer, compression::CompressionLayer};
 use std::{convert::Infallible, io, net::SocketAddr};
 use tracing::info_span;
+use std::sync::Arc;
 
 mod middlewares;
 use middlewares::*;
@@ -31,6 +32,8 @@ async fn main() {
     std::env::set_var("RUST_LOG", "info");
     std::env::set_var("RUST_BACKTRACE", "1");
     env_logger::init();
+
+    let database_pool = DataBase::create_connection().await;
 
     let example_state = ExampleData {a: 3000};
 
@@ -67,9 +70,7 @@ async fn main() {
 
                 .layer(
                     ServiceBuilder::new()
-                        .layer(UpdateTokens)
-                        .layer(AuthFromRefresh)
-                        .layer(AuthLayer)
+                        .layer(AuthLayer {db_conn: database_pool.clone()})
                         .layer(DefaultBodyLimit::max(4096))
                         .layer(TraceLayer::new_for_http().make_span_with(|_req: &Request<_>| {
                             info_span!("request: ", method = %_req.method(), uri = %_req.uri(), versions = ?_req.version());

@@ -1,3 +1,5 @@
+use axum::extract;
+use axum_extra::extract::CookieJar;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use chrono::{Duration, Utc};
 use uuid::Uuid;
@@ -5,30 +7,34 @@ use tokio::fs;
 use thiserror::Error;
 use std::result::Result;
 use log::error;
+use sqlx::PgPool;
 
-use crate::models::{Claims, Jwt};
+use crate::services::database_service::*;
+use crate::models::{Claims, DataBase, Jwt};
 
 #[derive(Debug, Error)]
 pub enum JwtError {
     #[error("JWT error: {0}")]
     JWT(#[from] jsonwebtoken::errors::Error),
     #[error("Error reading key: {0}")]
-    ReadingKey(#[from] std::io::Error)
+    ReadingKey(#[from] std::io::Error),
+    #[error("Error: not found in database")]
+    DataBaseNotFound,
 }
 
 
-async fn access_key() -> Result<String, std::io::Error> {
+async fn public_key() -> Result<String, std::io::Error> {
     fs::read_to_string("ed25519_public.pem").await
 }
 
-async fn refresh_key() -> Result<String, std::io::Error> {
+async fn private_key() -> Result<String, std::io::Error> {
     fs::read_to_string("ed25519_private.pem").await
 }
 
 
 impl Jwt {
     pub async fn create_acc_token(id: &str, role: &str) -> Result<String, JwtError> {
-        let refresh_key = match refresh_key().await.map_err(|e| JwtError::ReadingKey(e)) {
+        let private_key = match private_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
                 error!("Ошибка чтения refresh key: {}", e);
@@ -49,7 +55,7 @@ impl Jwt {
 
         let mut header = Header::new(Algorithm::EdDSA);
         header.typ = Some("AccessToken".to_owned());
-        encode(&header, &claims, &EncodingKey::from_ed_pem(refresh_key.as_bytes())?).map_err(JwtError::from)
+        encode(&header, &claims, &EncodingKey::from_ed_pem(private_key.as_bytes())?).map_err(JwtError::from)
     }
 
 
@@ -58,7 +64,7 @@ impl Jwt {
 
 
     pub async fn verify_acc_token(token: &str) -> Result<Claims, JwtError> {
-        let access_key = match access_key().await.map_err(|e| JwtError::ReadingKey(e)) {
+        let public_key = match public_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
                 error!("Ошибка чтения access key: {}", e);
@@ -73,7 +79,7 @@ impl Jwt {
         val.reject_tokens_expiring_in_less_than = 10;
         val.validate_aud = true;
 
-        let data = decode::<Claims>(token, &DecodingKey::from_ed_pem(access_key.as_bytes())?, &val).map_err(JwtError::from);
+        let data = decode::<Claims>(token, &DecodingKey::from_ed_pem(public_key.as_bytes())?, &val).map_err(JwtError::from);
         match data {
             Ok(claims) => return Ok(claims.claims),
             Err(e) => {
@@ -89,7 +95,7 @@ impl Jwt {
 
 
     pub async fn create_ref_token(id: &str, role: &str) -> Result<String, JwtError> {
-        let refresh_key = match refresh_key().await.map_err(|e| JwtError::ReadingKey(e)) {
+        let private_key = match private_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
                 error!("Ошибка чтения refresh key: {}", e);
@@ -110,7 +116,7 @@ impl Jwt {
 
         let mut header = Header::new(Algorithm::EdDSA);
         header.typ = Some("RefreshToken".to_owned());
-        encode(&header, &claims, &EncodingKey::from_ed_pem(refresh_key.as_bytes())?).map_err(JwtError::from)
+        encode(&header, &claims, &EncodingKey::from_ed_pem(private_key.as_bytes())?).map_err(JwtError::from)
     }
 
 
@@ -118,8 +124,8 @@ impl Jwt {
 
 
 
-    pub async fn verify_ref_token(token: &str) -> Result<Claims, JwtError> {
-        let access_key = match access_key().await.map_err(|e| JwtError::ReadingKey(e)) {
+    pub async fn verify_ref_token(token: &str, pool: &PgPool) -> Result<Claims, JwtError> {
+        let public_key = match public_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
                 error!("Ошибка чтения access key: {}", e);
@@ -134,13 +140,34 @@ impl Jwt {
         val.reject_tokens_expiring_in_less_than = 20;
         val.validate_aud = true;
 
-        let data = decode::<Claims>(token, &DecodingKey::from_ed_pem(access_key.as_bytes())?, &val).map_err(JwtError::from);
+        let data = decode::<Claims>(token, &DecodingKey::from_ed_pem(public_key.as_bytes())?, &val).map_err(JwtError::from);
         match data {
-            Ok(claims) => return Ok(claims.claims),
+            Ok(claims) => {
+                match DataBase::verify_ref_token(&claims.claims.sub, token, &claims.claims.jti, pool).await {
+                    Ok(_) => (),
+                    Err(_) => {
+                        error!("Refresh токен не найден в базе данных либо не верен");
+                        return Err(JwtError::DataBaseNotFound)},
+                }
+                return Ok(claims.claims)},
             Err(e) => {
-                error!("Ошибка проверки access token: {e}");
+                error!("Ошибка проверки refresh token: {e}");
                 return Err(e)
             }
+        }
+    }
+
+    pub async fn get_refresh_token(jar: &CookieJar) -> String {
+        match jar.get("RefreshToken") {
+            Some(val) => return val.to_string(),
+            None => return String::new()
+        }
+    }
+
+    pub async fn get_access_token(jar: &CookieJar) -> String {
+        match jar.get("AccessToken") {
+            Some(val) => return val.to_string(),
+            None => return String::new()
         }
     }
 

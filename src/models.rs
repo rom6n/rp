@@ -2,6 +2,7 @@ use axum::{extract::{FromRequest, FromRequestParts}, http::{HeaderMap, request::
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use sqlx::{prelude::FromRow, PgPool};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExampleData {
@@ -23,29 +24,27 @@ pub struct  Claims {
     pub role: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct Jwt;
 
-
 #[derive(Debug, Clone)]
-pub struct AuthLayer;
+pub struct AuthLayer {
+    pub db_conn: PgPool,
+}
 
 #[derive(Debug, Clone)]
 pub struct AuthLayerService<S> {
-    pub inner: Option<S>
+    pub inner: Option<S>,
+    pub db_conn: PgPool
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AuthFromRefresh;
+pub struct DataBase;
 
-#[derive(Debug, Clone)]
-pub struct AuthFromRefreshService<S> {
-    pub inner: Option<S>
+#[derive(Debug, Clone, FromRow)]
+pub struct HashExtractDb {
+    pub token_hash: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct UpdateTokens;
-
 #[derive(Debug, Clone)]
-pub struct UpdateTokensService<S> {
-    pub inner: Option<S>
-}
+pub struct Argon;
