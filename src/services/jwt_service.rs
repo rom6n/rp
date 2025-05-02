@@ -10,17 +10,7 @@ use log::error;
 use sqlx::PgPool;
 
 use crate::services::database_service::*;
-use crate::models::{Claims, DataBase, Jwt};
-
-#[derive(Debug, Error)]
-pub enum JwtError {
-    #[error("JWT error: {0}")]
-    JWT(#[from] jsonwebtoken::errors::Error),
-    #[error("Error reading key: {0}")]
-    ReadingKey(#[from] std::io::Error),
-    #[error("Error: not found in database")]
-    DataBaseNotFound,
-}
+use crate::models::{Claims, DataBase, Jwt, JwtError};
 
 
 async fn public_key() -> Result<String, std::io::Error> {
@@ -124,7 +114,7 @@ impl Jwt {
 
 
 
-    pub async fn verify_ref_token(token: &str, pool: &PgPool) -> Result<Claims, JwtError> {
+    pub async fn verify_ref_token(token: &str, pool: &PgPool, search_in_db: bool) -> Result<Claims, JwtError> {
         let public_key = match public_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
@@ -143,11 +133,13 @@ impl Jwt {
         let data = decode::<Claims>(token, &DecodingKey::from_ed_pem(public_key.as_bytes())?, &val).map_err(JwtError::from);
         match data {
             Ok(claims) => {
-                match DataBase::verify_ref_token(&claims.claims.sub, token, &claims.claims.jti, pool).await {
-                    Ok(_) => (),
-                    Err(_) => {
-                        error!("Refresh токен не найден в базе данных либо не верен");
-                        return Err(JwtError::DataBaseNotFound)},
+                if search_in_db == true {
+                    match DataBase::verify_ref_token(&claims.claims.sub, token, &claims.claims.jti, pool).await {
+                        Ok(_) => (),
+                        Err(_) => {
+                            error!("Refresh токен не найден в базе данных либо не верен");
+                            return Err(JwtError::DataBaseNotFound)},
+                    }
                 }
                 return Ok(claims.claims)},
             Err(e) => {

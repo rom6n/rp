@@ -5,7 +5,9 @@ use argon2::{
         PasswordHash, SaltString
     },
 };
-use crate::models::Argon;
+use thiserror::Error;
+
+use crate::models::{Argon, ArgonError};
 use log::error;
 
 impl Argon {
@@ -24,6 +26,27 @@ impl Argon {
             Err(e) => {
                 error!("Ошибка проверки хеша: {e}");
                 return Err(e);
+            }
+        }
+    }
+
+    pub async fn hash_str(data: &str) -> Result<String, ArgonError> {
+        let salt = SaltString::generate(&mut OsRng);
+
+        let mut params = match Params::new(64440, 3, 2, None) {
+            Ok(val) => val,
+            Err(e) => {
+                error!("Ошибка создания params в argon2: {e}");
+                return Err(ArgonError::ParamsError);
+            }
+        };
+
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        match argon2.hash_password(data.as_bytes(), &salt) {
+            Ok(hash) => return Ok(hash.to_string()),
+            Err(e) => {
+                error!("Не удалось хешировать данные: {e}");
+                return Err(ArgonError::HashError)
             }
         }
     }

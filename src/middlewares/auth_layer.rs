@@ -1,6 +1,7 @@
 use axum::{body::Body, response::{Response, Redirect}, extract::Request};
 use futures_util::future::BoxFuture;
 use http::{HeaderValue};
+use sqlx::Database;
 use tower::{Service, Layer};
 use std::str::FromStr;
 use std::task::{Context, Poll};
@@ -61,7 +62,7 @@ where
             } else {
                 let refresh_token = Jwt::get_refresh_token(&jar).await;
 
-                if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, &pool).await {
+                if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, &pool, true).await {
 
                     if let Ok(access_token) = Jwt::create_acc_token(&claims.sub, &claims.role).await {
                         n_access_token = access_token.clone();
@@ -70,10 +71,11 @@ where
                             req.extensions_mut().insert(access_claims);
                         }
 
-                        DataBase::del_ref_token(&claims.sub, &claims.jti, &pool).await;
+                        DataBase::del_ref_token(&claims.sub, &claims.jti, &pool).await; // не возврашает result (логирует ошибки)
 
                         if let Ok(refresh_token) = Jwt::create_ref_token(&claims.sub, &claims.role).await {
-                            n_refresh_token = refresh_token
+                            DataBase::save_ref_token(&refresh_token, &pool).await; // не возврашает result (логирует ошибки)
+                            n_refresh_token = refresh_token;
                         }
                     }
                 } 

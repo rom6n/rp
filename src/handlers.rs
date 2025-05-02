@@ -1,8 +1,9 @@
-use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query}, http::{header, HeaderMap, StatusCode, Uri}, response::{Html, IntoResponse}, routing::{delete, get, post, put}, Router};
+use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, http::{header, HeaderMap, StatusCode, Uri}, response::{Html, IntoResponse}, routing::{delete, get, post, put}, Router};
 use std::{net::SocketAddr};
 use crate::models::*;
 use serde_json::Value;
 use crate::services::jwt_service;
+use sqlx::PgPool;
 
 
 pub async fn main_page() -> String {
@@ -42,3 +43,6 @@ async fn all_the_things(uri: Uri, payload: Result<Json<Value>, JsonRejection>) -
     )
 }
 
+pub async fn register_page(Path(path): Path<String>, State(pool): State<&PgPool>) -> Html<String> {
+    todo!()
+}
