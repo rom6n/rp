@@ -1,10 +1,16 @@
-use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, http::{header, HeaderMap, StatusCode, Uri}, response::{Html, IntoResponse}, routing::{delete, get, post, put}, Router};
-use std::{net::SocketAddr};
+use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, http::{header, HeaderMap, StatusCode, Uri}, 
+    response::{Html, IntoResponse, Redirect, Response}, routing::{delete, get, post, put}, Router};
+use cookie::Cookie;
+use http::HeaderValue;
+use log::info;
+use std::{net::SocketAddr, sync::Arc};
 use crate::models::*;
 use serde_json::Value;
-use crate::services::jwt_service;
+use axum_extra::extract::cookie::SameSite;
 use sqlx::PgPool;
 
+
+use crate::services::jwt_service;
 
 pub async fn main_page() -> String {
     "Its main page".to_string()
@@ -43,6 +49,99 @@ async fn all_the_things(uri: Uri, payload: Result<Json<Value>, JsonRejection>) -
     )
 }
 
-pub async fn register_page(Path(path): Path<String>, State(pool): State<&PgPool>) -> Html<String> {
-    todo!()
+pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
+    let user = match DataBase::save_user(&data.nickname, &data.name, &data.password, Arc::clone(&pool)).await {
+        Ok(user) => user,
+        Err(_) => return {
+            Redirect::to("/").into_response()
+        }
+    };
+    
+    let access_token = match Jwt::create_acc_token(&format!("{}", &user.id), "User").await {
+        Ok(token) => token,
+        Err(_) => return {
+            Redirect::to("/").into_response()
+        }
+    };
+    info!("Созданный access token: {access_token}");
+
+    let refresh_token = match Jwt::create_ref_token(&format!("{}", &user.id), "User").await {
+        Ok(token) => token,
+        Err(_) => return {
+            Redirect::to("/").into_response()
+        }
+    };
+
+    DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await;
+
+    let mut access_cookie = Cookie::new("AccessToken", access_token);
+    access_cookie.set_http_only(false);
+    access_cookie.set_secure(false);
+    access_cookie.set_path("/");
+    access_cookie.set_same_site(SameSite::Strict);
+
+    let mut refresh_cookie = Cookie::new("RefreshToken", refresh_token);
+    refresh_cookie.set_http_only(false);
+    refresh_cookie.set_secure(false);
+    refresh_cookie.set_path("/");
+    refresh_cookie.set_same_site(SameSite::Strict);
+
+    
+    let mut response: Response = Redirect::to(&format!("/profile/{}", user.nickname))
+        .into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    response.headers_mut().insert(http::header::SET_COOKIE, HeaderValue::from_str(&access_cookie.to_string())
+        .unwrap_or(HeaderValue::from_static("")));
+    response.headers_mut().insert(http::header::SET_COOKIE, HeaderValue::from_str(&refresh_cookie.to_string())
+        .unwrap_or(HeaderValue::from_static("")));
+
+    response
+
+
+}
+
+pub async fn profile(Path(nickname): Path<String>, State(pool): State<Arc<PgPool>>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
+    let user = match DataBase::get_user(&nickname, Arc::clone(&pool)).await {
+        Ok(user) => user,
+        Err(_) => return (StatusCode::NOT_FOUND, Html("User not found".to_string()))
+    };
+    let mut body = String::new();
+
+    if let Some(claims) = extensions {
+        if claims.sub == format!("{}", user.id) {
+            body = format!(
+                "
+                <h1>Your profile</h1>\n\
+                <p><strong>Nickname:</strong> {}</p>\n\
+                <p><strong>Name:</strong> {}</p>\n\
+                <p><strong>ID:</strong> {}</p>\n\
+                <p><strong>Password:</strong> {}</p>\n\
+                ",
+                user.nickname,
+                user.name,
+                user.id,
+                user.password,
+            );
+        } else {
+            body = format!(
+                "<h1>Profile</h1>\n\
+                <p><strong>Nickname:</strong> {}</p>\n\
+                <p><strong>Name:</strong> {}</p>",
+                user.nickname,
+                user.name,
+            );
+        }
+    } else {
+        body = format!(
+            "<h1>Profile</h1>\n\
+            <p><strong>Nickname:</strong> {}</p>\n\
+            <p><strong>Name:</strong> {}</p>",
+            user.nickname,
+            user.name,
+        );
+    }
+
+
+    (StatusCode::FOUND, Html(body))
+        
 }

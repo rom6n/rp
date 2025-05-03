@@ -1,4 +1,5 @@
 use axum::{extract::{FromRequest, FromRequestParts}, http::{HeaderMap, request::Parts}};
+use cookie::time::error;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -31,13 +32,13 @@ pub struct Jwt;
 
 #[derive(Debug, Clone)]
 pub struct AuthLayer {
-    pub db_conn: PgPool,
+    pub db_conn: Arc<PgPool>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AuthLayerService<S> {
     pub inner: Option<S>,
-    pub db_conn: PgPool
+    pub db_conn: Arc<PgPool>
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,7 +52,7 @@ pub struct HashExtractDb {
 #[derive(Debug, Clone)]
 pub struct Argon;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum ArgonError {
     #[error("Error hashing data")]
     HashError,
@@ -71,3 +72,29 @@ pub enum JwtError {
 
 #[derive(Debug, Clone)]
 pub struct  TimeCustom;
+
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RegisterForm {
+    pub nickname: String,
+    pub name: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum DataBaseError {
+    #[error("Argon error: {0}")]
+    SomeArgonError(#[from] ArgonError),
+    #[error("Save to database error")]
+    SaveError,
+    #[error("Not found error")]
+    NotFound,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct User {
+    pub id: i64,
+    pub nickname: String,
+    pub name: String,
+    pub password: String,
+}

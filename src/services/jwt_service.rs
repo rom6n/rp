@@ -5,8 +5,8 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 use tokio::fs;
 use thiserror::Error;
-use std::result::Result;
-use log::error;
+use std::{result::Result, sync::Arc};
+use log::{error, info};
 use sqlx::PgPool;
 
 use crate::services::database_service::*;
@@ -114,7 +114,7 @@ impl Jwt {
 
 
 
-    pub async fn verify_ref_token(token: &str, pool: &PgPool, search_in_db: bool) -> Result<Claims, JwtError> {
+    pub async fn verify_ref_token(token: &str, pool: Arc<PgPool>, search_in_db: bool) -> Result<Claims, JwtError> {
         let public_key = match public_key().await.map_err(|e| JwtError::ReadingKey(e)) {
             Ok(token) => token,
             Err(e) => {
@@ -151,14 +151,20 @@ impl Jwt {
 
     pub async fn get_refresh_token(jar: &CookieJar) -> String {
         match jar.get("RefreshToken") {
-            Some(val) => return val.to_string(),
+            Some(val) => {
+                let val = val.value();
+                return val.to_string()
+            },
             None => return String::new()
         }
     }
 
     pub async fn get_access_token(jar: &CookieJar) -> String {
         match jar.get("AccessToken") {
-            Some(val) => return val.to_string(),
+            Some(val) => {
+                let val = val.value();
+                return val.to_string()
+            },
             None => return String::new()
         }
     }

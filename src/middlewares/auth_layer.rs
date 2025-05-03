@@ -20,7 +20,7 @@ use crate::models::{AuthLayer, AuthLayerService, Claims, DataBase, Jwt};
 impl<S> Layer<S> for AuthLayer {
     type Service = AuthLayerService<S>;
     fn layer(&self, inner: S) -> Self::Service {
-        AuthLayerService {inner: Some(inner), db_conn: self.db_conn.clone()}
+        AuthLayerService {inner: Some(inner), db_conn: Arc::clone(&self.db_conn)}
     }
 }
 
@@ -46,13 +46,13 @@ where
         let jar = CookieJar::from_headers(req.headers());
 
         let mut future = self.inner.take().expect("Service called after completion");
-        let conn = self.db_conn.clone();
+        let connection_database = Arc::clone(&self.db_conn);
 
         Box::pin(async move {
             info!("AuthLayer работает!");
             let mut n_access_token = String::new();
             let mut n_refresh_token = String::new();
-            let pool = conn;
+            let pool = connection_database;
             let access_token = Jwt::get_access_token(&jar).await;
             
 
@@ -62,7 +62,7 @@ where
             } else {
                 let refresh_token = Jwt::get_refresh_token(&jar).await;
 
-                if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, &pool, true).await {
+                if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, Arc::clone(&pool), true).await {
 
                     if let Ok(access_token) = Jwt::create_acc_token(&claims.sub, &claims.role).await {
                         n_access_token = access_token.clone();
@@ -71,10 +71,10 @@ where
                             req.extensions_mut().insert(access_claims);
                         }
 
-                        DataBase::del_ref_token(&claims.sub, &claims.jti, &pool).await; // не возврашает result (логирует ошибки)
+                        DataBase::del_ref_token(&claims.sub, &claims.jti, Arc::clone(&pool)).await; // не возврашает result (логирует ошибки)
 
                         if let Ok(refresh_token) = Jwt::create_ref_token(&claims.sub, &claims.role).await {
-                            DataBase::save_ref_token(&refresh_token, &pool).await; // не возврашает result (логирует ошибки)
+                            DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await; // не возврашает result (логирует ошибки)
                             n_refresh_token = refresh_token;
                         }
                     }
@@ -88,7 +88,7 @@ where
                 cookie.set_http_only(true);
                 cookie.set_secure(false);
                 cookie.set_same_site(SameSite::Strict);
-                //cookie.set_path("/"); потом 
+                cookie.set_path("/");
 
                 response.headers_mut()
                     .insert(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
@@ -100,7 +100,7 @@ where
                 cookie.set_http_only(true);
                 cookie.set_secure(false);
                 cookie.set_same_site(SameSite::Strict);
-                //cookie.set_path("/"); потом 
+                cookie.set_path("/"); 
 
                 response.headers_mut()
                     .insert(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
