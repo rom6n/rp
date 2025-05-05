@@ -1,14 +1,14 @@
 use chrono::{DateTime, TimeZone, Duration, Utc};
-use crate::models::TimeCustom;
+use crate::models::{TimeCustom, TimeCustomError};
 use log::error;
 
 impl TimeCustom {
-    pub async fn from_usize_to_timestampz(time: usize) -> Result<String, String> {
+    pub async fn from_usize_to_timestampz(time: usize) -> Result<String, TimeCustomError> {
         let time2: i64 = match time.try_into() {
             Ok(val) => val,
             Err(e) => {
                 error!("Не удалось превратить usize в i64: {e}");
-                return Err("TryFromIntError".to_string());
+                return Err(TimeCustomError::ParseError(e));
             }
         };
 
@@ -16,7 +16,7 @@ impl TimeCustom {
             Some(val) => val,
             None => {
                 error!("Не удалось поставить timestamp для i64: None");
-                return Err("None".to_string())
+                return Err(TimeCustomError::TimestampError)
             }
         };
 

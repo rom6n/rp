@@ -9,8 +9,8 @@ use std::{result::Result, sync::Arc};
 use log::{error, info};
 use sqlx::PgPool;
 
-use crate::services::database_service::*;
 use crate::models::{Claims, DataBase, Jwt, JwtError};
+
 
 
 async fn public_key() -> Result<String, std::io::Error> {
@@ -163,9 +163,13 @@ impl Jwt {
         match jar.get("AccessToken") {
             Some(val) => {
                 let val = val.value();
+                //info!("Полученный access token: {val}");
                 return val.to_string()
             },
-            None => return String::new()
+            None => {
+                //info!("access token не получен");
+                return String::new()
+            }
         }
     }
 

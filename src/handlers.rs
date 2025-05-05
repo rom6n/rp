@@ -8,9 +8,9 @@ use crate::models::*;
 use serde_json::Value;
 use axum_extra::extract::cookie::SameSite;
 use sqlx::PgPool;
+use tokio::task::spawn_blocking;
 
 
-use crate::services::jwt_service;
 
 pub async fn main_page() -> String {
     "Its main page".to_string()
@@ -50,9 +50,11 @@ async fn all_the_things(uri: Uri, payload: Result<Json<Value>, JsonRejection>) -
 }
 
 pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
-    let user = match DataBase::save_user(&data.nickname, &data.name, &data.password, Arc::clone(&pool)).await {
+    let mut transaction: sqlx::Transaction<'static, sqlx::Postgres> = pool.begin().await.expect("Ошибка создания transaction из pool");
+    let user = match DataBase::save_user(&data.nickname, &data.name, &data.password, &mut transaction).await {
         Ok(user) => user,
         Err(_) => return {
+            transaction.rollback().await.expect("Не удалось rollback transaction");
             Redirect::to("/").into_response()
         }
     };
@@ -60,19 +62,23 @@ pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgP
     let access_token = match Jwt::create_acc_token(&format!("{}", &user.id), "User").await {
         Ok(token) => token,
         Err(_) => return {
+            transaction.rollback().await.expect("Не удалось rollback transaction");
             Redirect::to("/").into_response()
         }
     };
-    info!("Созданный access token: {access_token}");
+    //info!("Созданный access token: {access_token}");
 
     let refresh_token = match Jwt::create_ref_token(&format!("{}", &user.id), "User").await {
         Ok(token) => token,
         Err(_) => return {
+            transaction.rollback().await.expect("Не удалось rollback transaction");
             Redirect::to("/").into_response()
         }
     };
 
     DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await;
+    transaction.commit().await.expect("Не удалось commit transaction");
+
 
     let mut access_cookie = Cookie::new("AccessToken", access_token);
     access_cookie.set_http_only(false);
@@ -90,9 +96,9 @@ pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgP
     let mut response: Response = Redirect::to(&format!("/profile/{}", user.nickname))
         .into_response();
     *response.status_mut() = StatusCode::SEE_OTHER;
-    response.headers_mut().insert(http::header::SET_COOKIE, HeaderValue::from_str(&access_cookie.to_string())
+    response.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&access_cookie.to_string())
         .unwrap_or(HeaderValue::from_static("")));
-    response.headers_mut().insert(http::header::SET_COOKIE, HeaderValue::from_str(&refresh_cookie.to_string())
+    response.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&refresh_cookie.to_string())
         .unwrap_or(HeaderValue::from_static("")));
 
     response

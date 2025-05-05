@@ -14,17 +14,9 @@ use std::{convert::Infallible, io, net::SocketAddr};
 use tracing::info_span;
 use std::sync::Arc;
 
-mod middlewares;
-use middlewares::*;
 
-mod services;
-use services::jwt_service::*;
-
-mod models;
-use models::*;
-
-mod handlers;
-use handlers::*;
+use rp::models::*;
+use rp::handlers::*;
 
 
 #[tokio::main]
@@ -76,9 +68,7 @@ async fn main() {
                     ServiceBuilder::new()
                         .layer(DefaultBodyLimit::max(4096))
                         .layer(TraceLayer::new_for_http().make_span_with(|_req: &Request<_>| {
-                            info_span!("request: ", method = %_req.method(), uri = %_req.uri(), versions = ?_req.version());
-                            info_span!("\n")
-                        }))
+                            info_span!("request: ", method = %_req.method(), uri = %_req.uri(), versions = ?_req.version())}))
                         .layer(CompressionLayer::new())
                         .layer(ConcurrencyLimitLayer::new(250))
                         //.layer(BufferLayer::new(500))

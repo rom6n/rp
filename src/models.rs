@@ -58,6 +58,12 @@ pub enum ArgonError {
     HashError,
     #[error("Creating params error")]
     ParamsError,
+    #[error("Parse data to hash error")]
+    ParseError,
+    #[error("Verify hash error")]
+    VerifyHashError,
+    #[error("Tokio runtime error")]
+    TokioError,
 }
 
 #[derive(Debug, Error)]
@@ -73,6 +79,14 @@ pub enum JwtError {
 #[derive(Debug, Clone)]
 pub struct  TimeCustom;
 
+#[derive(Debug, Error, Clone)]
+pub enum TimeCustomError {
+    #[error("Parsing error: {0}")]
+    ParseError(#[from] std::num::TryFromIntError),
+    #[error("Timestamp error")]
+    TimestampError,
+}
+
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RegisterForm {
@@ -87,8 +101,14 @@ pub enum DataBaseError {
     SomeArgonError(#[from] ArgonError),
     #[error("Save to database error")]
     SaveError,
-    #[error("Not found error")]
+    #[error("Not found, error")]
     NotFound,
+    #[error("Time service error: {0}")]
+    SomeTimeError(#[from] TimeCustomError),
+    #[error("Non-valid token access/refresh")]
+    NonValidToken,
+    #[error("some sqlx error")]
+    SqlxError,
 }
 
 #[derive(Debug, Clone, FromRow)]
