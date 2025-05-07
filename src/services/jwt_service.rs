@@ -38,11 +38,12 @@ impl Jwt {
             iss: "server".to_owned(),
             aud: "all".to_owned(),
             iat: now.timestamp() as usize,
-            exp: (now+Duration::minutes(15)).timestamp() as usize,
+            exp: (now+Duration::seconds(15)).timestamp() as usize,
             role: role.to_owned(),
             jti: Uuid::new_v4().to_string(),
         };
 
+        info!("Access token обновлен!");
         let mut header = Header::new(Algorithm::EdDSA);
         header.typ = Some("AccessToken".to_owned());
         encode(&header, &claims, &EncodingKey::from_ed_pem(private_key.as_bytes())?).map_err(JwtError::from)

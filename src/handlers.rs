@@ -1,9 +1,11 @@
-use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, http::{header, HeaderMap, StatusCode, Uri}, 
-    response::{Html, IntoResponse, Redirect, Response}, routing::{delete, get, post, put}, Router};
+use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, 
+    http::{header, HeaderMap, StatusCode, Uri}, 
+    response::{Html, IntoResponse, Redirect, Response}, 
+    routing::{delete, get, post, put}, Router};
 use cookie::Cookie;
 use http::HeaderValue;
 use log::info;
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 use crate::models::*;
 use serde_json::Value;
 use axum_extra::extract::cookie::SameSite;
@@ -75,11 +77,10 @@ pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgP
             Redirect::to("/").into_response()
         }
     };
-
-    DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await;
     transaction.commit().await.expect("Не удалось commit transaction");
 
-
+    DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await;
+    
     let mut access_cookie = Cookie::new("AccessToken", access_token);
     access_cookie.set_http_only(false);
     access_cookie.set_secure(false);
@@ -150,4 +151,79 @@ pub async fn profile(Path(nickname): Path<String>, State(pool): State<Arc<PgPool
 
     (StatusCode::FOUND, Html(body))
         
+}
+
+pub async fn all_users(State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
+    let users = DataBase::get_all_users(Arc::clone(&pool)).await;
+    match users {
+        Ok(users) => {
+            return (StatusCode::FOUND, Json(users))
+        }
+        Err(_) => return (StatusCode::NOT_FOUND, Json(vec![]))
+    }
+}
+
+pub async fn my_profile(State(pool): State<Arc<PgPool>>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
+    let claims = match extensions {
+        Some(claims) => claims,
+        None => return (StatusCode::SEE_OTHER, Redirect::to("/"))
+    };
+
+    let user = DataBase::get_user_by_id(&claims.sub, Arc::clone(&pool)).await;
+    match user {
+        Ok(user) => return (StatusCode::SEE_OTHER, Redirect::to(&format!("/profile/{}", user.nickname))),
+        Err(_) => return (StatusCode::SEE_OTHER, Redirect::to("/"))
+    }
+
+}
+
+pub async fn login(Path(data): Path<(String, String)>, State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
+    let nickname = data.0;
+    let passwordd = data.1;
+    println!("{}", &passwordd);
+
+    let user_data = DataBase::get_user(&nickname, Arc::clone(&pool)).await;
+    let user = match user_data {
+        Ok(user) => user,
+        Err(_) => return Redirect::to("/").into_response()
+    };
+
+    match Argon::verify_hash(&user.password, &passwordd).await {
+        Ok(_) => (),
+        Err(_) => return Redirect::to("/").into_response()
+    }
+
+    let acc_token = match Jwt::create_acc_token(&format!("{}", &user.id), "User").await {
+        Ok(token) => token,
+        Err(_) => return Redirect::to("/").into_response()
+    };
+
+    let ref_token = match Jwt::create_ref_token(&format!("{}", &user.id), "User").await {
+        Ok(token) => token,
+        Err(_) => return Redirect::to("/").into_response()
+    };
+
+    DataBase::save_ref_token(&ref_token, Arc::clone(&pool)).await;
+
+    let mut acc_cookie = Cookie::new("AccessToken", acc_token);
+    acc_cookie.set_http_only(false);
+    acc_cookie.set_secure(false);
+    acc_cookie.set_path("/");
+    acc_cookie.set_same_site(SameSite::Strict);
+
+    let mut ref_cookie = Cookie::new("RefreshToken", ref_token);
+    ref_cookie.set_http_only(false);
+    ref_cookie.set_secure(false);
+    ref_cookie.set_path("/");
+    ref_cookie.set_same_site(SameSite::Strict);
+
+
+    let mut response: Response = Redirect::to(&format!("/profile/{}", &user.nickname)).into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
+    response.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&acc_cookie.to_string())
+        .unwrap_or(HeaderValue::from_static("")));
+    response.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&ref_cookie.to_string())
+        .unwrap_or(HeaderValue::from_static("")));
+
+    response
 }

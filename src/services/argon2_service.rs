@@ -16,7 +16,7 @@ use log::error;
 impl Argon {
     pub async fn verify_hash(hash: &str, value: &str) -> Result<(), ArgonError> {
         let argon2 = Argon2::default();
-        let parsed_hash = match PasswordHash::new(value) {
+        let parsed_hash = match PasswordHash::new(hash) {
             Ok(hash) => hash,
             Err(e) => {
                 error!("Ошибка парсинга в хеш: {e}");
@@ -24,7 +24,7 @@ impl Argon {
             }
         };
 
-        match argon2.verify_password(hash.as_bytes(), &parsed_hash) {
+        match argon2.verify_password(value.as_bytes(), &parsed_hash) {
             Ok(_) => return Ok(()),
             Err(e) => {
                 error!("Ошибка проверки хеша: {e}");
@@ -36,7 +36,7 @@ impl Argon {
     pub async fn hash_str(data: &str) -> Result<String, ArgonError> {
         let salt = SaltString::generate(&mut OsRng);
 
-        let params = match Params::new(64440, 3, 2, None) {
+        let params = match Params::new(64 * 1024, 2, 1, Some(32)) {
             Ok(val) => val,
             Err(e) => {
                 error!("Ошибка создания params в argon2: {e}");

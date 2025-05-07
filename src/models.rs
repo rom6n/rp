@@ -52,7 +52,7 @@ pub struct HashExtractDb {
 #[derive(Debug, Clone)]
 pub struct Argon;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Clone, Serialize)]
 pub enum ArgonError {
     #[error("Error hashing data")]
     HashError,
@@ -79,10 +79,10 @@ pub enum JwtError {
 #[derive(Debug, Clone)]
 pub struct  TimeCustom;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Clone, Serialize)]
 pub enum TimeCustomError {
-    #[error("Parsing error: {0}")]
-    ParseError(#[from] std::num::TryFromIntError),
+    #[error("Parsing error")]
+    ParseError,
     #[error("Timestamp error")]
     TimestampError,
 }
@@ -95,7 +95,7 @@ pub struct RegisterForm {
     pub password: String,
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, Serialize)]
 pub enum DataBaseError {
     #[error("Argon error: {0}")]
     SomeArgonError(#[from] ArgonError),
@@ -107,11 +107,13 @@ pub enum DataBaseError {
     SomeTimeError(#[from] TimeCustomError),
     #[error("Non-valid token access/refresh")]
     NonValidToken,
-    #[error("some sqlx error")]
+    #[error("Some sqlx error")]
     SqlxError,
+    #[error("Some error")]
+    SomeError,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize)]
 pub struct User {
     pub id: i64,
     pub nickname: String,

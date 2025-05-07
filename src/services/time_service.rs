@@ -3,12 +3,12 @@ use crate::models::{TimeCustom, TimeCustomError};
 use log::error;
 
 impl TimeCustom {
-    pub async fn from_usize_to_timestampz(time: usize) -> Result<String, TimeCustomError> {
+    pub async fn from_usize_to_timestampz(time: usize) -> Result<DateTime<Utc>, TimeCustomError> {
         let time2: i64 = match time.try_into() {
             Ok(val) => val,
             Err(e) => {
                 error!("Не удалось превратить usize в i64: {e}");
-                return Err(TimeCustomError::ParseError(e));
+                return Err(TimeCustomError::ParseError);
             }
         };
 
@@ -20,6 +20,6 @@ impl TimeCustom {
             }
         };
 
-        Ok(time3.to_rfc3339())
+        Ok(time3)
     }
 }

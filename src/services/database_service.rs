@@ -18,18 +18,25 @@ impl DataBase {
 
     pub async fn verify_ref_token(user_id: &str, token: &str, jti: &str, pool: Arc<PgPool>) -> Result<(), DataBaseError> {
         let req = r#"SELECT token_hash FROM refresh_tokens WHERE user_id = $1 and jti = $2"#;
-        if let Ok(res) = sqlx::query_as::<_, HashExtractDb>(req).bind(user_id).bind(jti).fetch_one(&*Arc::clone(&pool)).await {
-            if let Ok(_) = Argon::verify_hash(&res.token_hash, token).await {
-                return Ok(());
+        match sqlx::query_as::<_, HashExtractDb>(req).bind(user_id.parse::<i64>().unwrap_or(-1)).bind(jti).fetch_one(&*Arc::clone(&pool)).await {
+            Ok(res) => match Argon::verify_hash(&res.token_hash, token).await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    error!("Ошибка проверки хеша токена: {e}");
+                    return  Err(DataBaseError::SomeArgonError(e));
+                }
+            } 
+            Err(e) => {
+                error!("Ошибка поиска токена в базе данных: {e}");
+                return Err(DataBaseError::NotFound) 
             }
         }
-        error!("Refresh токен не найден в базе данных");
-        return Err(DataBaseError::NotFound)
+        
     }
 
     pub async fn del_ref_token(user_id: &str, jti: &str, pool: Arc<PgPool>) -> Result<(), DataBaseError> {
-        let req = r#"DELETE * FROM refresh_tokens WHERE user_id = $1 and jti = $2 "#;
-        let res = query(req).bind(user_id).bind(jti).execute(&*pool).await;
+        let req = r#"DELETE FROM refresh_tokens WHERE user_id = $1 and jti = $2 "#;
+        let res = query(req).bind(user_id.parse::<i64>().unwrap_or(-1)).bind(jti).execute(&*pool).await;
         match res {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -45,7 +52,7 @@ impl DataBase {
             let token_hash = match Argon::hash_str(token).await {
                 Ok(hash) => hash,
                 Err(e) => {
-                    error!("Не удалось хешировать claims refresh токена: {e}");
+                    error!("Не удалось хешировать refresh токен: {e}");
                     return Err(DataBaseError::SomeArgonError(e));
                 }
             };
@@ -108,6 +115,30 @@ impl DataBase {
             Err(e) => {
                 error!("Не удалось найти пользователя в БД: {e}");
                 return  Err(DataBaseError::NotFound);
+            }
+        }
+    }
+
+    pub async fn get_all_users(pool: Arc<PgPool>) -> Result<Vec<User>, DataBaseError> {
+        let req = r#"SELECT * FROM users"#;
+        let res = query_as::<_, User>(req).fetch_all(&*pool).await;
+        match res {
+            Ok(users) => return Ok(users),
+            Err(e) => {
+                error!("Ошибка получения всех пользователей из ДБ: {e}");
+                return Err(DataBaseError::SqlxError)
+            }
+        }
+    }
+
+    pub async fn get_user_by_id(id: &str, pool: Arc<PgPool>) -> Result<User, DataBaseError> {
+        let req = r#"SELECT * FROM users WHERE id = $1"#;
+        let res = query_as::<_, User>(req).bind(id.parse::<i64>().map_err(|_| DataBaseError::SomeError).unwrap()).fetch_one(&*pool).await;
+        match res {
+            Ok(user) => return Ok(user),
+            Err(e) => {
+                error!("Ошибка поиска user по id: {e}");
+                return Err(DataBaseError::NotFound)
             }
         }
     }
