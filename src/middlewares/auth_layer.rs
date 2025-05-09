@@ -91,7 +91,7 @@ where
                 cookie.set_path("/");
 
                 response.headers_mut()
-                    .insert(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
+                    .append(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
                     .unwrap_or(HeaderValue::from_static("")));
             }
 
@@ -103,7 +103,7 @@ where
                 cookie.set_path("/"); 
 
                 response.headers_mut()
-                    .insert(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
+                    .append(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())
                     .unwrap_or(HeaderValue::from_static("")));
             }
 

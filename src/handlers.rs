@@ -3,6 +3,7 @@ use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extensio
     response::{Html, IntoResponse, Redirect, Response}, 
     routing::{delete, get, post, put}, Router};
 use cookie::Cookie;
+use deadpool_redis::Pool;
 use http::HeaderValue;
 use log::info;
 use std::{net::SocketAddr, str::FromStr, sync::Arc};
@@ -51,9 +52,9 @@ async fn all_the_things(uri: Uri, payload: Result<Json<Value>, JsonRejection>) -
     )
 }
 
-pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
+pub async fn register(Path(data): Path<RegisterForm>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>) -> impl IntoResponse {
     let mut transaction: sqlx::Transaction<'static, sqlx::Postgres> = pool.begin().await.expect("Ошибка создания transaction из pool");
-    let user = match DataBase::save_user(&data.nickname, &data.name, &data.password, &mut transaction).await {
+    let user = match DataBase::save_user(&data.nickname, &data.name, &data.password, &mut transaction, Arc::clone(&redis_pool)).await {
         Ok(user) => user,
         Err(_) => return {
             transaction.rollback().await.expect("Не удалось rollback transaction");
@@ -107,8 +108,8 @@ pub async fn register(Path(data): Path<RegisterForm>, State(pool): State<Arc<PgP
 
 }
 
-pub async fn profile(Path(nickname): Path<String>, State(pool): State<Arc<PgPool>>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
-    let user = match DataBase::get_user(&nickname, Arc::clone(&pool)).await {
+pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
+    let user = match DataBase::get_user(&nickname, Arc::clone(&pool), Arc::clone(&redis_pool)).await {
         Ok(user) => user,
         Err(_) => return (StatusCode::NOT_FOUND, Html("User not found".to_string()))
     };
@@ -153,8 +154,8 @@ pub async fn profile(Path(nickname): Path<String>, State(pool): State<Arc<PgPool
         
 }
 
-pub async fn all_users(State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
-    let users = DataBase::get_all_users(Arc::clone(&pool)).await;
+pub async fn all_users(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>) -> impl IntoResponse {
+    let users = DataBase::get_all_users(Arc::clone(&pool), Arc::clone(&redis_pool)).await;
     match users {
         Ok(users) => {
             return (StatusCode::FOUND, Json(users))
@@ -163,13 +164,13 @@ pub async fn all_users(State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
     }
 }
 
-pub async fn my_profile(State(pool): State<Arc<PgPool>>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
+pub async fn my_profile(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
     let claims = match extensions {
         Some(claims) => claims,
         None => return (StatusCode::SEE_OTHER, Redirect::to("/"))
     };
 
-    let user = DataBase::get_user_by_id(&claims.sub, Arc::clone(&pool)).await;
+    let user = DataBase::get_user_by_id(&claims.sub, Arc::clone(&pool), Arc::clone(&redis_pool)).await;
     match user {
         Ok(user) => return (StatusCode::SEE_OTHER, Redirect::to(&format!("/profile/{}", user.nickname))),
         Err(_) => return (StatusCode::SEE_OTHER, Redirect::to("/"))
@@ -177,12 +178,12 @@ pub async fn my_profile(State(pool): State<Arc<PgPool>>, extensions: Option<Exte
 
 }
 
-pub async fn login(Path(data): Path<(String, String)>, State(pool): State<Arc<PgPool>>) -> impl IntoResponse {
+pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>) -> impl IntoResponse {
     let nickname = data.0;
     let passwordd = data.1;
     println!("{}", &passwordd);
 
-    let user_data = DataBase::get_user(&nickname, Arc::clone(&pool)).await;
+    let user_data = DataBase::get_user(&nickname, Arc::clone(&pool), Arc::clone(&redis_pool)).await;
     let user = match user_data {
         Ok(user) => user,
         Err(_) => return Redirect::to("/").into_response()

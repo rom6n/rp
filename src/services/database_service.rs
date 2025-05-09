@@ -1,12 +1,10 @@
 use std::{env, sync::Arc};
-use redis::{RedisResult, AsyncCommands};
-use deadpool_redis::{Config as RedisConfig, Pool, PoolError};
+use deadpool_redis::Pool;
 use sqlx::{PgPool, query, query_as, FromRow, Transaction};
 use dotenv::dotenv;
 use log::error;
-use tokio::task::spawn_blocking;
 
-use crate::models::{Argon, DataBase, DataBaseError, HashExtractDb, Jwt, TimeCustom, User};
+use crate::models::{Argon, DataBase, DataBaseError, HashExtractDb, Jwt, TimeCustom, User, Redis};
 
 impl DataBase {
     pub async fn create_connection() -> PgPool {
@@ -88,7 +86,7 @@ impl DataBase {
         }
     }
 
-    pub async fn save_user(nickname: &str, name: &str, password: &str, pool: &mut sqlx::Transaction<'static, sqlx::Postgres>) -> Result<User, DataBaseError> {
+    pub async fn save_user(nickname: &str, name: &str, password: &str, pool: &mut sqlx::Transaction<'static, sqlx::Postgres>, redis_pool: Arc<Pool>) -> Result<User, DataBaseError> {
         let password = match Argon::hash_str(password).await {
             Ok(hash) => hash,
             Err(e) => {
@@ -96,10 +94,25 @@ impl DataBase {
                 return Err(DataBaseError::SomeArgonError(e));
             }
         };
-
+        
         let req = r#"INSERT INTO users (nickname, name, password) VALUES ($1, $2, $3) RETURNING id, nickname, name, password"#;
         match query_as::<_, User>(req).bind(nickname).bind(name).bind(password).fetch_one(&mut **pool).await {
-            Ok(val) => return Ok(val),
+            Ok(val) => {
+                match Redis::redis_set(Arc::clone(&redis_pool), &format!("user:{}", val.id), vec![val.clone()]).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Ошибка вызова redis_set: {e}")
+                    }
+                }
+
+                match Redis::redis_set(Arc::clone(&redis_pool), &format!("user_nick:{}", val.nickname), vec![val.clone()]).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Ошибка вызова redis_set: {e}")
+                    }
+                }
+                return Ok(val)
+            },
             Err(e) => {
                 error!("Ошибка добавления нового пользователя в БД: {e}");
                 return Err(DataBaseError::SaveError);
@@ -107,11 +120,29 @@ impl DataBase {
         }
     }
 
-    pub async fn get_user(nickname: &str, pool: Arc<PgPool>) -> Result<User, DataBaseError> {
+    pub async fn get_user(nickname: &str, pool: Arc<PgPool>, redis_pool: Arc<Pool>) -> Result<User, DataBaseError> {
+        match Redis::redis_get(Arc::clone(&redis_pool), &format!("user_nick:{}", nickname)).await {
+            Ok(vec) => {
+                return Ok(vec.first().unwrap().to_owned())
+            },
+            Err(e) => {
+                error!("Ошибка поиска user в redis: {e}");
+            }
+        };
+
         let req = r#"SELECT * FROM users WHERE nickname = $1"#;
 
         match query_as::<_, User>(req).bind(nickname).fetch_one(&*Arc::clone(&pool)).await {
-            Ok(user) => return Ok(user),
+            Ok(user) => {
+                match Redis::redis_set(Arc::clone(&redis_pool), &format!("user_nick:{}", &user.nickname), vec![user.clone()]).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Ошибка вызова redis_set: {e}")
+                    }
+                }
+
+                return Ok(user)
+            },
             Err(e) => {
                 error!("Не удалось найти пользователя в БД: {e}");
                 return  Err(DataBaseError::NotFound);
@@ -119,11 +150,29 @@ impl DataBase {
         }
     }
 
-    pub async fn get_all_users(pool: Arc<PgPool>) -> Result<Vec<User>, DataBaseError> {
+    pub async fn get_all_users(pool: Arc<PgPool>, redis_pool: Arc<Pool>) -> Result<Vec<User>, DataBaseError> {
+        match Redis::redis_get(Arc::clone(&redis_pool), "user:all").await {
+            Ok(vec) => {
+                return Ok(vec)
+            },
+            Err(e) => {
+                error!("Ошибка поиска all user в redis: {e}");
+            }
+        };
+
         let req = r#"SELECT * FROM users"#;
         let res = query_as::<_, User>(req).fetch_all(&*pool).await;
         match res {
-            Ok(users) => return Ok(users),
+            Ok(users) => {
+                match Redis::redis_set(Arc::clone(&redis_pool), "user:all", users.clone()).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Ошибка вызова redis_set: {e}")
+                    }
+                }
+
+                return Ok(users)
+            },
             Err(e) => {
                 error!("Ошибка получения всех пользователей из ДБ: {e}");
                 return Err(DataBaseError::SqlxError)
@@ -131,11 +180,28 @@ impl DataBase {
         }
     }
 
-    pub async fn get_user_by_id(id: &str, pool: Arc<PgPool>) -> Result<User, DataBaseError> {
+    pub async fn get_user_by_id(id: &str, pool: Arc<PgPool>, redis_pool: Arc<Pool>) -> Result<User, DataBaseError> {
+        match Redis::redis_get(Arc::clone(&redis_pool), &format!("user:{}", id)).await {
+            Ok(vec) => {
+                return Ok(vec.first().unwrap().to_owned())
+            },
+            Err(e) => {
+                error!("Ошибка поиска user в redis: {e}");
+            }
+        };
+
         let req = r#"SELECT * FROM users WHERE id = $1"#;
         let res = query_as::<_, User>(req).bind(id.parse::<i64>().map_err(|_| DataBaseError::SomeError).unwrap()).fetch_one(&*pool).await;
         match res {
-            Ok(user) => return Ok(user),
+            Ok(user) => {
+                match Redis::redis_set(Arc::clone(&redis_pool), &format!("user:{}", id), vec![user.clone()]).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Ошибка вызова redis_set: {e}")
+                    }
+                }
+                return Ok(user)
+            },
             Err(e) => {
                 error!("Ошибка поиска user по id: {e}");
                 return Err(DataBaseError::NotFound)

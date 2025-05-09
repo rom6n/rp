@@ -26,15 +26,15 @@ async fn main() {
     env_logger::init();
 
     let database_pool = Arc::new(DataBase::create_connection().await);
-
+    let redis_pool = Arc::new(Redis::create_connection().await);
 
     let first_page = Router::new().route("/", get(main_page).post(main_page).delete(main_page).put(main_page));
-    let register_page = Router::new().route("/reg/{nickname}/{name}/{password}", get(register).with_state(Arc::clone(&database_pool)));
-    let profile_page = Router::new().route("/profile/{nickname}", get(profile).with_state(Arc::clone(&database_pool)));
+    let register_page = Router::new().route("/reg/{nickname}/{name}/{password}", get(register).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
+    let profile_page = Router::new().route("/profile/{nickname}", get(profile).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
     let greet_page = Router::new().route("/{name}", get(greet).with_state(ExampleData {a: 3}));
-    let all_users_page = Router::new().route("/all", get(all_users).with_state(Arc::clone(&database_pool)));
-    let my_profile_page = Router::new().route("/profile", get(my_profile).with_state(Arc::clone(&database_pool)));
-    let login_page = Router::new().route("/login/{nickname}/{password}", get(login).with_state(Arc::clone(&database_pool)));
+    let all_users_page = Router::new().route("/all", get(all_users).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
+    let my_profile_page = Router::new().route("/profile", get(my_profile).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
+    let login_page = Router::new().route("/login/{nickname}/{password}", get(login).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
     
     let files = Router::new()
                             .route_service("/toml", ServeFile::new("Cargo.toml"))

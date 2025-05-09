@@ -113,10 +113,18 @@ pub enum DataBaseError {
     SomeError,
 }
 
-#[derive(Debug, Clone, FromRow, Serialize)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     pub nickname: String,
     pub name: String,
     pub password: String,
+}
+
+pub struct Redis;
+
+#[derive(Debug, Clone, Error)]
+pub enum CustomRedisError {
+    #[error("Some redis error")]
+    SomeError
 }
