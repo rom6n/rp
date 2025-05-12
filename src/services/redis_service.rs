@@ -21,7 +21,7 @@ impl Redis {
             Ok(conn) => conn,
             Err(e) => {
                 error!("Ошибка получения соединения redis: {e}");
-                return Err(CustomRedisError::SomeError)
+                return Err(CustomRedisError::ConnectError)
             }
         };
 
@@ -29,7 +29,7 @@ impl Redis {
             Ok(Some(data)) => data,
             Ok(None) => {
                 error!("Null данные в Redis");
-                return Err(CustomRedisError::SomeError);
+                return Err(CustomRedisError::NoneError);
             },
             Err(e) => {
                 error!("Ошибка получения данных из redis: {}", e);
@@ -54,7 +54,7 @@ impl Redis {
             Ok(conn) => conn,
             Err(e) => {
                 error!("Ошибка получения соединения redis: {e}");
-                return Err(CustomRedisError::SomeError)
+                return Err(CustomRedisError::ConnectError)
             }
         };
 

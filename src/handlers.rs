@@ -6,7 +6,7 @@ use cookie::Cookie;
 use deadpool_redis::Pool;
 use http::HeaderValue;
 use log::info;
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{fmt::format, net::SocketAddr, str::FromStr, sync::Arc};
 use crate::models::*;
 use serde_json::Value;
 use axum_extra::extract::cookie::SameSite;
@@ -227,4 +227,21 @@ pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool))
         .unwrap_or(HeaderValue::from_static("")));
 
     response
+}
+
+
+pub async fn cipher_text(Path(data): Path<String>) -> impl IntoResponse {
+    let (encrypted, nonce) = match Aes::encrypt_data(&data).await {
+        Ok((encrypted, nonce)) => (encrypted, nonce),
+        Err(e) => {
+            return format!("Не удалось зашифровать данные: {e}")
+        }
+    };
+
+    let decrypted = match Aes::decrypt_data(&encrypted, &nonce).await {
+        Ok(decrypted) => decrypted,
+        Err(e) => format!("Не удалось расшифровать данные: {e}")
+    };
+
+    format!("Изначальные данные: {data}\n\nЗашифровано: {:?}\nNonce: {:?}\n\nРасшифровано: {decrypted}", encrypted, nonce)
 }

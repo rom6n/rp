@@ -30,6 +30,7 @@ cookie = "0.18.1"
 axum-extra = {version = "0.10.0", features = ["cookie"]}
 deadpool-redis = "0.20.0"
 redis = { version = "0.30.0", features = ["tokio-comp"] }
+hex = "0.4.3"
 
 
 [dev-dependencies]

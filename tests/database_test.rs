@@ -35,10 +35,13 @@ async fn save_user_test() {
 
 #[tokio::test]
 async fn get_user_test() {
+    let time = Instant::now();
     let pool = Arc::new(DataBase::create_connection().await);
     let redis_pool = Arc::new(Redis::create_connection().await);
     let res = DataBase::get_user("test-user688311194", Arc::clone(&pool), Arc::clone(&redis_pool)).await;
-    assert!(res.is_ok())
+    assert!(res.is_ok());
+    let stop = time.elapsed().as_millis();
+    println!("{:?}, время: {}", res.clone().unwrap(), stop);
 }
 
 #[tokio::test]

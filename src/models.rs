@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use sqlx::{prelude::FromRow, PgPool};
 use thiserror::Error;
+use aes_gcm::{Key, Aes256Gcm};
 use argon2::password_hash;
 
 #[derive(Debug, Clone, Copy)]
@@ -126,5 +127,21 @@ pub struct Redis;
 #[derive(Debug, Clone, Error)]
 pub enum CustomRedisError {
     #[error("Some redis error")]
-    SomeError
+    SomeError,
+    #[error("Connecting error")]
+    ConnectError,
+    #[error("Redis returned none")]
+    NoneError,
+}
+
+pub struct Aes {
+    key: Key<Aes256Gcm>
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum AesError {
+    #[error("Encrypting error")]
+    EncryptError,
+    #[error("Decrypting error")]
+    DecryptError
 }
