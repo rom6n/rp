@@ -143,5 +143,9 @@ pub enum AesError {
     #[error("Encrypting error")]
     EncryptError,
     #[error("Decrypting error")]
-    DecryptError
+    DecryptError,
+    #[error("Encrypting file error")]
+    EncryptFileError,
+    #[error("Decrypting file error")]
+    DecryptFileError
 }

@@ -1,3 +1,4 @@
+use aes::cipher::generic_array::GenericArray;
 use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, 
     http::{header, HeaderMap, StatusCode, Uri}, 
     response::{Html, IntoResponse, Redirect, Response}, 
@@ -230,18 +231,18 @@ pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool))
 }
 
 
-pub async fn cipher_text(Path(data): Path<String>) -> impl IntoResponse {
-    let (encrypted, nonce) = match Aes::encrypt_data(&data).await {
-        Ok((encrypted, nonce)) => (encrypted, nonce),
+pub async fn cipher_text(Path(text): Path<String>) -> impl IntoResponse {
+    let data = match Aes::encrypt_data(&text).await {
+        Ok(res) => res,
         Err(e) => {
             return format!("Не удалось зашифровать данные: {e}")
         }
     };
 
-    let decrypted = match Aes::decrypt_data(&encrypted, &nonce).await {
+    let decrypted = match Aes::decrypt_data(&data).await {
         Ok(decrypted) => decrypted,
         Err(e) => format!("Не удалось расшифровать данные: {e}")
     };
 
-    format!("Изначальные данные: {data}\n\nЗашифровано: {:?}\nNonce: {:?}\n\nРасшифровано: {decrypted}", encrypted, nonce)
+    format!("Изначальные данные: {text}\n\nЗашифровано: {data:?}\nРасшифровано: {decrypted:?}")
 }

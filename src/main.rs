@@ -39,7 +39,7 @@ async fn main() {
     
     let files = Router::new()
                             .route_service("/toml", ServeFile::new("Cargo.toml"))
-                            .route_service("/static", ServeFile::new(".static/message.txt"));
+                            .route_service("/static", ServeFile::new("static/message.txt"));
 
     let routes = Router::new()
                 .merge(my_profile_page)
