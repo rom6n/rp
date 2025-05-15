@@ -6,7 +6,7 @@ use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extensio
 use cookie::Cookie;
 use deadpool_redis::Pool;
 use http::HeaderValue;
-use log::info;
+use log::{info, error};
 use std::{fmt::format, net::SocketAddr, str::FromStr, sync::Arc};
 use crate::models::*;
 use serde_json::Value;
@@ -57,31 +57,45 @@ pub async fn register(Path(data): Path<RegisterForm>, State((pool, redis_pool)):
     let mut transaction: sqlx::Transaction<'static, sqlx::Postgres> = pool.begin().await.expect("Ошибка создания transaction из pool");
     let user = match DataBase::save_user(&data.nickname, &data.name, &data.password, &mut transaction, Arc::clone(&redis_pool)).await {
         Ok(user) => user,
-        Err(_) => return {
-            transaction.rollback().await.expect("Не удалось rollback transaction");
-            Redirect::to("/").into_response()
+        Err(_) => {
+            transaction.rollback().await.expect("Не удалось rollback transaction 1");
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
         }
     };
     
     let access_token = match Jwt::create_acc_token(&format!("{}", &user.id), "User").await {
         Ok(token) => token,
-        Err(_) => return {
-            transaction.rollback().await.expect("Не удалось rollback transaction");
-            Redirect::to("/").into_response()
+        Err(_) => {
+            transaction.rollback().await.expect("Не удалось rollback transaction 2");
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
         }
     };
     //info!("Созданный access token: {access_token}");
 
     let refresh_token = match Jwt::create_ref_token(&format!("{}", &user.id), "User").await {
         Ok(token) => token,
-        Err(_) => return {
-            transaction.rollback().await.expect("Не удалось rollback transaction");
-            Redirect::to("/").into_response()
+        Err(_) => {
+            transaction.rollback().await.expect("Не удалось rollback transaction 3");
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
         }
     };
     transaction.commit().await.expect("Не удалось commit transaction");
 
-    DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await;
+    match DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await {
+        Ok(_) => (),
+        Err(e) => {
+            error!("Ошибка сохранения ref token в БД: {e}");
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
+        }
+    }
     
     let mut access_cookie = Cookie::new("AccessToken", access_token);
     access_cookie.set_http_only(false);
@@ -112,7 +126,7 @@ pub async fn register(Path(data): Path<RegisterForm>, State((pool, redis_pool)):
 pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
     let user = match DataBase::get_user(&nickname, Arc::clone(&pool), Arc::clone(&redis_pool)).await {
         Ok(user) => user,
-        Err(_) => return (StatusCode::NOT_FOUND, Html("User not found".to_string()))
+        Err(_) => return (StatusCode::NOT_FOUND, Html("<h1>User not found</h1>".to_string()))
     };
     let mut body = String::new();
 
@@ -182,30 +196,54 @@ pub async fn my_profile(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>
 pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>) -> impl IntoResponse {
     let nickname = data.0;
     let passwordd = data.1;
-    println!("{}", &passwordd);
+    //println!("{}", &passwordd);
 
     let user_data = DataBase::get_user(&nickname, Arc::clone(&pool), Arc::clone(&redis_pool)).await;
     let user = match user_data {
         Ok(user) => user,
-        Err(_) => return Redirect::to("/").into_response()
+        Err(_) => {
+            let mut resp: Response = Html("<h1>User not found</h1>").into_response();
+            *resp.status_mut() = StatusCode::NOT_FOUND;
+            return resp
+        }
     };
 
     match Argon::verify_hash(&user.password, &passwordd).await {
         Ok(_) => (),
-        Err(_) => return Redirect::to("/").into_response()
+        Err(_) => {
+            let mut resp: Response = Html("<h1>Incorrect password, try again</h1>").into_response();
+            *resp.status_mut() = StatusCode::BAD_REQUEST;
+            return resp
+        }
     }
 
     let acc_token = match Jwt::create_acc_token(&format!("{}", &user.id), "User").await {
         Ok(token) => token,
-        Err(_) => return Redirect::to("/").into_response()
+        Err(_) => {
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
+        }
     };
 
-    let ref_token = match Jwt::create_ref_token(&format!("{}", &user.id), "User").await {
+    let refresh_token = match Jwt::create_ref_token(&format!("{}", &user.id), "User").await {
         Ok(token) => token,
-        Err(_) => return Redirect::to("/").into_response()
+        Err(_) => {
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
+        }
     };
 
-    DataBase::save_ref_token(&ref_token, Arc::clone(&pool)).await;
+    match DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await {
+        Ok(_) => (),
+        Err(e) => {
+            error!("Ошибка сохранения ref token в БД: {e}");
+            let mut resp: Response = Html("<h1>Error, try again later</h1>").into_response();
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return resp
+        }
+    }
 
     let mut acc_cookie = Cookie::new("AccessToken", acc_token);
     acc_cookie.set_http_only(false);
@@ -213,7 +251,7 @@ pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool))
     acc_cookie.set_path("/");
     acc_cookie.set_same_site(SameSite::Strict);
 
-    let mut ref_cookie = Cookie::new("RefreshToken", ref_token);
+    let mut ref_cookie = Cookie::new("RefreshToken", refresh_token);
     ref_cookie.set_http_only(false);
     ref_cookie.set_secure(false);
     ref_cookie.set_path("/");

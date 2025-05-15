@@ -13,6 +13,7 @@ use cookie::{Cookie, SameSite};
 use serde_json::{to_string, from_str};
 use log::info;
 use chrono::{Utc, Duration};
+use sqlx::PgPool;
 
 use crate::models::{AuthLayer, AuthLayerService, Claims, DataBase, Jwt};
 
@@ -62,22 +63,14 @@ where
             } else {
                 let refresh_token = Jwt::get_refresh_token(&jar).await;
 
-                if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, Arc::clone(&pool), true).await {
+                if let Ok((claims, refresh_token)) = all_checks(Arc::clone(&pool), true, &refresh_token).await {
+                    n_refresh_token = refresh_token;    
+                    let access_token = Jwt::create_acc_token(&claims.sub, &claims.role).await.unwrap_or("".to_owned());
 
-                    if let Ok(access_token) = Jwt::create_acc_token(&claims.sub, &claims.role).await {
-                        n_access_token = access_token.clone();
-
-                        if let Ok(access_claims) = Jwt::verify_acc_token(&access_token).await {
-                            req.extensions_mut().insert(access_claims);
-                        }
-
-                        DataBase::del_ref_token(&claims.sub, &claims.jti, Arc::clone(&pool)).await; // не возврашает result (логирует ошибки)
-
-                        if let Ok(refresh_token) = Jwt::create_ref_token(&claims.sub, &claims.role).await {
-                            DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await; // не возврашает result (логирует ошибки)
-                            n_refresh_token = refresh_token;
-                        }
-                    }
+                    if let Ok(access_claims) = Jwt::verify_acc_token(&access_token).await {
+                        n_access_token = access_token;
+                        req.extensions_mut().insert(access_claims);
+                    } 
                 } 
             }
 
@@ -112,7 +105,25 @@ where
     }
 }
 
+async fn all_checks(pool: Arc<PgPool>, search_in_db: bool, refresh_token: &str) -> Result<(Claims, String), String> {
+    if let Ok(claims) = Jwt::verify_ref_token(&refresh_token, Arc::clone(&pool), search_in_db).await {
+        if let Ok(()) = DataBase::del_ref_token(&claims.sub, &claims.jti, Arc::clone(&pool)).await {
 
+            let refresh_token = Jwt::create_ref_token(&claims.sub, &claims.role).await.unwrap_or("".to_owned());
+            DataBase::save_ref_token(&refresh_token, Arc::clone(&pool)).await.unwrap_or(());
+            
+            match Jwt::verify_ref_token(&refresh_token, Arc::clone(&pool), true).await {
+                Ok(claims) => Ok((claims, refresh_token)),
+                Err(e) => Err(format!("Error checking refresh token: {e}"))
+            }
+            
+        } else {
+            Err("Error deleting refresh token".to_owned())
+        }
+    } else {
+        Err("Error checking refresh troken".to_owned())
+    }
+}
 
 
 
