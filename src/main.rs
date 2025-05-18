@@ -36,6 +36,7 @@ async fn main() {
     let my_profile_page = Router::new().route("/profile", get(my_profile).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
     let login_page = Router::new().route("/login/{nickname}/{password}", get(login).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
     let cipher_text_path = Router::new().route("/cipher/{data}", get(cipher_text));
+    let update_user_path = Router::new().route("/change/{field}/{change_to}", get(update_user).with_state((Arc::clone(&database_pool), Arc::clone(&redis_pool))));
     
     let files = Router::new()
                             .route_service("/toml", ServeFile::new("Cargo.toml"))
@@ -44,6 +45,7 @@ async fn main() {
     let routes = Router::new()
                 .merge(my_profile_page)
                 .merge(profile_page)
+                .merge(update_user_path)
                 .layer(AuthLayer {db_conn: Arc::clone(&database_pool)})
                 .merge(first_page)
                 .merge(register_page)

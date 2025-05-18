@@ -33,7 +33,7 @@ async fn decrypt_test() {
 
 #[tokio::test]
 async fn encrypt_file_test() {
-    let path = Path::new("src/static/qrcode.png");
+    let path = Path::new("src/static/Texts.docx");
     let res = Aes::encrypt_file(path).await;
     //println!("{:?}", res.clone().unwrap());
     assert!(res.is_ok())

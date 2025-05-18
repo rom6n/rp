@@ -75,5 +75,28 @@ impl Redis {
             }
         }
     }
+
+    pub async fn redis_del(redis_pool: Arc<Pool>, key: &str) -> Result<(), CustomRedisError> {
+        let mut conn = match redis_pool.get().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                error!("Ошибка получения соединения redis: {e}");
+                return Err(CustomRedisError::ConnectError)
+            }
+        };
+
+        let res: Result<(), RedisError> = conn.del(key).await;
+        match res {
+            Ok(()) => {
+                info!("пользователь удален из redis");
+                return Ok(())
+            },
+            Err(e) => {
+                error!("Не удалось удалить из Redis: {e}");
+                Err(CustomRedisError::DeleteError)
+            }
+        }
+    }
+
 }
 

@@ -45,7 +45,6 @@ where
 
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         let jar = CookieJar::from_headers(req.headers());
-
         let mut future = self.inner.take().expect("Service called after completion");
         let connection_database = Arc::clone(&self.db_conn);
 

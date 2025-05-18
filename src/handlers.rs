@@ -123,14 +123,14 @@ pub async fn register(Path(data): Path<RegisterForm>, State((pool, redis_pool)):
 
 }
 
-pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
+pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, extension: Option<Extension<Claims>>) -> impl IntoResponse {
     let user = match DataBase::get_user(&nickname, Arc::clone(&pool), Arc::clone(&redis_pool)).await {
         Ok(user) => user,
         Err(_) => return (StatusCode::NOT_FOUND, Html("<h1>User not found</h1>".to_string()))
     };
     let mut body = String::new();
 
-    if let Some(claims) = extensions {
+    if let Some(claims) = extension {
         if claims.sub == format!("{}", user.id) {
             body = format!(
                 "
@@ -198,6 +198,7 @@ pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool))
     let passwordd = data.1;
     //println!("{}", &passwordd);
 
+    //Redis::redis_del(Arc::clone(&redis_pool), &format!("user_nick:{}", &nickname)).await.expect("Не удалось удалить пользователя из Redis");
     let user_data = DataBase::get_user(&nickname, Arc::clone(&pool), Arc::clone(&redis_pool)).await;
     let user = match user_data {
         Ok(user) => user,
@@ -283,4 +284,46 @@ pub async fn cipher_text(Path(text): Path<String>) -> impl IntoResponse {
     };
 
     format!("Изначальные данные: {text}\n\nЗашифровано: {data:?}\nРасшифровано: {decrypted:?}")
+}
+
+pub async fn update_user(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, Path(data): Path<(String, String)>, extension: Option<Extension<Claims>>) -> impl IntoResponse {
+    let claims = match extension {
+        Some(claims) => claims,
+        None => {
+            let mut res = Html("<h1>You're not logged in</h1>").into_response();
+            *res.status_mut() = StatusCode::UNAUTHORIZED;
+            return res
+        }  
+    };
+
+    let field = data.0;
+    let change_to = data.1;
+    let mut transaction = pool.begin().await.expect("Не удалось начать транзакцию"); 
+
+    match DataBase::update_user(&claims.sub, &change_to, &field, &mut transaction).await {
+        Ok(_) => (),
+        Err(_) => {
+            let mut res = Html("<h1>Error, try again later</h1>").into_response();
+            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return res
+        }
+    }
+    
+    transaction.commit().await.expect("Не удалось commit транзакцию");
+
+    let user = match DataBase::get_user_by_id(&claims.sub, Arc::clone(&pool), Arc::clone(&redis_pool)).await {
+        Ok(user) => user,
+        Err(_) => {
+            let mut res = Html("<h1>Error, try again later</h1>").into_response();
+            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return res
+        }
+    };
+
+    Redis::redis_del(Arc::clone(&redis_pool), &format!("user:{}", &claims.sub)).await.expect("Не удалось удалить из Redis пользователя по id");
+    Redis::redis_del(Arc::clone(&redis_pool), &format!("user_nick:{}", &user.nickname)).await.expect("Не удалось удалить из Redis пользователя по nickname");
+
+    let mut res = Redirect::to(&format!("/profile/{}", user.nickname)).into_response();
+    *res.status_mut() = StatusCode::SEE_OTHER;
+    res
 }

@@ -132,6 +132,8 @@ pub enum CustomRedisError {
     ConnectError,
     #[error("Redis returned none")]
     NoneError,
+    #[error("Error deleting")]
+    DeleteError,
 }
 
 pub struct Aes {

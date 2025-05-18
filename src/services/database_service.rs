@@ -1,6 +1,6 @@
 use std::{env, sync::Arc};
 use deadpool_redis::Pool;
-use sqlx::{PgPool, query, query_as, FromRow, Transaction};
+use sqlx::{PgPool, query, query_as, Transaction};
 use dotenv::dotenv;
 use log::error;
 
@@ -207,6 +207,39 @@ impl DataBase {
                 return Err(DataBaseError::NotFound)
             }
         }
+    }
+
+    pub async fn update_user(id: &str, data: &str, field: &str, pool: &mut Transaction<'static, sqlx::Postgres>) -> Result<(), DataBaseError> {
+        let id = id.trim().parse::<i64>().expect("id должен быть &str");
+        let field = match field {
+            "nickname" => "nickname",
+            "name" => "name",
+            "password" => "password",
+            e@ _ => {
+                error!(r#"Поле "{e}" не существует в TABLE users"#);
+                return Err(DataBaseError::SomeError)
+            },
+        };
+
+        let mut data = data.to_owned();
+        if field == "password" {
+            data = match Argon::hash_str(&data).await {
+                Ok(password) => password,
+                Err(e) => return Err(DataBaseError::SomeArgonError(e)) 
+            };
+        }
+
+        let req = format!("UPDATE users SET {} = '{}' WHERE id = $1", field, data);
+        match query(&req).bind(id).execute(&mut **pool).await {
+            Ok(_) => {
+                return Ok(())
+            },
+            Err(e) => {
+                error!("Ошибка обновления пользователя: {e}");
+                return Err(DataBaseError::SqlxError)
+            }
+        }
+
     }
         
 
