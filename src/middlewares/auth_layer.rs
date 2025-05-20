@@ -69,8 +69,8 @@ where
                     if let Ok(access_claims) = Jwt::verify_acc_token(&access_token).await {
                         n_access_token = access_token;
                         req.extensions_mut().insert(access_claims);
-                    } 
-                } 
+                    }
+                }
             }
 
             let mut response = future.call(req).await?;
@@ -92,7 +92,7 @@ where
                 cookie.set_http_only(true);
                 cookie.set_secure(false);
                 cookie.set_same_site(SameSite::Strict);
-                cookie.set_path("/"); 
+                cookie.set_path("/");
 
                 response.headers_mut()
                     .append(http::header::SET_COOKIE, HeaderValue::from_str(&cookie.to_string())

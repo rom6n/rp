@@ -1,8 +1,9 @@
 use aes::cipher::generic_array::GenericArray;
-use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, State}, 
+use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, Request, State}, 
     http::{header, HeaderMap, StatusCode, Uri}, 
     response::{Html, IntoResponse, Redirect, Response}, 
     routing::{delete, get, post, put}, Router};
+use chrono::Utc;
 use cookie::Cookie;
 use deadpool_redis::Pool;
 use http::HeaderValue;
@@ -10,7 +11,7 @@ use log::{info, error};
 use std::{fmt::format, net::SocketAddr, str::FromStr, sync::Arc};
 use crate::models::*;
 use serde_json::Value;
-use axum_extra::extract::cookie::SameSite;
+use axum_extra::extract::{cookie::SameSite, CookieJar};
 use sqlx::PgPool;
 use tokio::task::spawn_blocking;
 
@@ -97,6 +98,8 @@ pub async fn register(Path(data): Path<RegisterForm>, State((pool, redis_pool)):
         }
     }
     
+    Redis::redis_del(Arc::clone(&redis_pool), "user:all").await.expect("Не удалось удалить all в redis");
+    
     let mut access_cookie = Cookie::new("AccessToken", access_token);
     access_cookie.set_http_only(false);
     access_cookie.set_secure(false);
@@ -110,7 +113,7 @@ pub async fn register(Path(data): Path<RegisterForm>, State((pool, redis_pool)):
     refresh_cookie.set_same_site(SameSite::Strict);
 
     
-    let mut response: Response = Redirect::to(&format!("/profile/{}", user.nickname))
+    let mut response: Response = Redirect::to("/profile")
         .into_response();
     *response.status_mut() = StatusCode::SEE_OTHER;
     response.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&access_cookie.to_string())
@@ -182,13 +185,25 @@ pub async fn all_users(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)
 pub async fn my_profile(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool>)>, extensions: Option<Extension<Claims>>) -> impl IntoResponse {
     let claims = match extensions {
         Some(claims) => claims,
-        None => return (StatusCode::SEE_OTHER, Redirect::to("/"))
+        None => {
+            let mut res = Html("<h1>You're not authorized</h1>").into_response();
+            *res.status_mut() = StatusCode::UNAUTHORIZED;
+            return res
+        }
     };
 
     let user = DataBase::get_user_by_id(&claims.sub, Arc::clone(&pool), Arc::clone(&redis_pool)).await;
     match user {
-        Ok(user) => return (StatusCode::SEE_OTHER, Redirect::to(&format!("/profile/{}", user.nickname))),
-        Err(_) => return (StatusCode::SEE_OTHER, Redirect::to("/"))
+        Ok(user) => {
+            let mut res = Redirect::to(&format!("/profile/{}", &user.nickname)).into_response();
+            *res.status_mut() = StatusCode::SEE_OTHER;
+            return res
+        },
+        Err(_) => {
+            let mut res = Html("<h1>Error, try again later</h1>").into_response();
+            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            return res
+        }
     }
 
 }
@@ -259,7 +274,7 @@ pub async fn login(Path(data): Path<(String, String)>, State((pool, redis_pool))
     ref_cookie.set_same_site(SameSite::Strict);
 
 
-    let mut response: Response = Redirect::to(&format!("/profile/{}", &user.nickname)).into_response();
+    let mut response: Response = Redirect::to("/profile").into_response();
     *response.status_mut() = StatusCode::SEE_OTHER;
     response.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&acc_cookie.to_string())
         .unwrap_or(HeaderValue::from_static("")));
@@ -301,15 +316,16 @@ pub async fn update_user(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool
     let mut transaction = pool.begin().await.expect("Не удалось начать транзакцию"); 
 
     match DataBase::update_user(&claims.sub, &change_to, &field, &mut transaction).await {
-        Ok(_) => (),
+        Ok(_) => transaction.commit().await.expect("Не удалось commit транзакцию"),
         Err(_) => {
             let mut res = Html("<h1>Error, try again later</h1>").into_response();
             *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
             return res
         }
     }
-    
-    transaction.commit().await.expect("Не удалось commit транзакцию");
+
+    Redis::redis_del(Arc::clone(&redis_pool), &format!("user:{}", &claims.sub)).await.expect("Не удалось удалить из Redis пользователя по id");
+    Redis::redis_del(Arc::clone(&redis_pool), "user:all").await.expect("Не удалось удалить из Redis пользователя по nickname");
 
     let user = match DataBase::get_user_by_id(&claims.sub, Arc::clone(&pool), Arc::clone(&redis_pool)).await {
         Ok(user) => user,
@@ -320,10 +336,50 @@ pub async fn update_user(State((pool, redis_pool)): State<(Arc<PgPool>, Arc<Pool
         }
     };
 
-    Redis::redis_del(Arc::clone(&redis_pool), &format!("user:{}", &claims.sub)).await.expect("Не удалось удалить из Redis пользователя по id");
     Redis::redis_del(Arc::clone(&redis_pool), &format!("user_nick:{}", &user.nickname)).await.expect("Не удалось удалить из Redis пользователя по nickname");
 
     let mut res = Redirect::to(&format!("/profile/{}", user.nickname)).into_response();
     *res.status_mut() = StatusCode::SEE_OTHER;
     res
+}
+
+pub async fn logout(extensions: Option<Extension<Claims>>, State(pool): State<Arc<PgPool>>, req: Request) -> impl IntoResponse {
+    if let Some(_) = extensions {
+        let jar = CookieJar::from_headers(req.headers());
+        let refresh_token = Jwt::get_refresh_token(&jar).await;
+
+        let refresh_token_claims = match Jwt::verify_ref_token(&refresh_token, Arc::clone(&pool), false).await {
+            Ok(token) => token,
+            Err(_) => {
+                let mut res = Html("<h1>Error, try again later</h1>").into_response();
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                return res
+            }
+        };
+
+        match DataBase::del_ref_token(&refresh_token_claims.sub, &refresh_token_claims.jti, Arc::clone(&pool)).await {
+            Ok(_) => (),
+            Err(_) => {
+                let mut res = Html("<h1>Error, try again later</h1>").into_response();
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                return res
+            }
+        }
+        info!("refresh token удален");
+    }
+
+    let mut access_cookie = Cookie::new("AccessToken", "");
+    access_cookie.set_max_age(cookie::time::Duration::seconds(-1));
+
+    let mut refresh_cookie = Cookie::new("RefreshToken", "");
+    refresh_cookie.set_max_age(cookie::time::Duration::seconds(-1));
+
+    let mut res = Html("<h1>You successfully logout</h1>").into_response();
+    *res.status_mut() = StatusCode::OK;
+    res.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&access_cookie.to_string())
+        .unwrap_or(HeaderValue::from_static("")));
+    res.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(&refresh_cookie.to_string())
+        .unwrap_or(HeaderValue::from_static("")));
+    res
+
 }
