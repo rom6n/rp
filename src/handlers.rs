@@ -1,19 +1,15 @@
-use aes::cipher::generic_array::GenericArray;
-use axum::{body::Body, extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Query, Request, State}, 
+use axum::{extract::{rejection::JsonRejection, ConnectInfo, Extension, Json, Path, Request, State}, 
     http::{header, HeaderMap, StatusCode, Uri}, 
-    response::{Html, IntoResponse, Redirect, Response}, 
-    routing::{delete, get, post, put}, Router};
-use chrono::Utc;
+    response::{Html, IntoResponse, Redirect, Response}};
 use cookie::Cookie;
 use deadpool_redis::Pool;
 use http::HeaderValue;
 use log::{info, error};
-use std::{fmt::format, net::SocketAddr, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use crate::models::*;
 use serde_json::Value;
 use axum_extra::extract::{cookie::SameSite, CookieJar};
 use sqlx::PgPool;
-use tokio::task::spawn_blocking;
 
 
 
@@ -33,11 +29,12 @@ pub async fn method_fallback() -> &'static str {
     "This method not allowed"
 }
 
-async fn all_the_things(uri: Uri, payload: Result<Json<Value>, JsonRejection>) -> impl IntoResponse {
+async fn _all_the_things(uri: Uri, _payload: Result<Json<Value>, JsonRejection>) -> impl IntoResponse {
     let mut header_map = HeaderMap::new();
     if uri.path() == "/" {
         header_map.insert(header::SERVER, "axum".parse().unwrap());
     }
+
 
     (
         // set status code
@@ -131,11 +128,11 @@ pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): St
         Ok(user) => user,
         Err(_) => return (StatusCode::NOT_FOUND, Html("<h1>User not found</h1>".to_string()))
     };
-    let mut body = String::new();
+    let mut _body = String::new();
 
     if let Some(claims) = extension {
         if claims.sub == format!("{}", user.id) {
-            body = format!(
+            _body = format!(
                 "
                 <h1>Your profile</h1>\n\
                 <p><strong>Nickname:</strong> {}</p>\n\
@@ -149,7 +146,7 @@ pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): St
                 user.password,
             );
         } else {
-            body = format!(
+            _body = format!(
                 "<h1>Profile</h1>\n\
                 <p><strong>Nickname:</strong> {}</p>\n\
                 <p><strong>Name:</strong> {}</p>",
@@ -158,7 +155,7 @@ pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): St
             );
         }
     } else {
-        body = format!(
+        _body = format!(
             "<h1>Profile</h1>\n\
             <p><strong>Nickname:</strong> {}</p>\n\
             <p><strong>Name:</strong> {}</p>",
@@ -168,7 +165,7 @@ pub async fn profile(Path(nickname): Path<String>, State((pool, redis_pool)): St
     }
 
 
-    (StatusCode::FOUND, Html(body))
+    (StatusCode::FOUND, Html(_body))
         
 }
 

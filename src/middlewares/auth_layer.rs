@@ -1,18 +1,12 @@
-use axum::{body::Body, response::{Response, Redirect}, extract::Request};
+use axum::{response::Response, extract::Request};
 use futures_util::future::BoxFuture;
 use http::{HeaderValue};
-use sqlx::Database;
 use tower::{Service, Layer};
-use std::str::FromStr;
 use std::task::{Context, Poll};
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use tokio::{sync::Mutex};
 use axum_extra::extract::cookie::CookieJar;
 use cookie::{Cookie, SameSite};
-use serde_json::{to_string, from_str};
 use log::info;
-use chrono::{Utc, Duration};
 use sqlx::PgPool;
 
 use crate::models::{AuthLayer, AuthLayerService, Claims, DataBase, Jwt};

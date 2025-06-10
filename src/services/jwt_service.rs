@@ -1,10 +1,8 @@
-use axum::extract;
 use axum_extra::extract::CookieJar;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 use tokio::fs;
-use thiserror::Error;
 use std::{result::Result, sync::Arc};
 use log::{error, info};
 use sqlx::PgPool;

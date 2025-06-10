@@ -1,13 +1,11 @@
-use aes_gcm::{aead::{generic_array::GenericArray, Aead, AeadCore, AeadMut, KeyInit}, Aes256Gcm, Key, Nonce};
+use aes_gcm::{aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit}, Aes256Gcm, Key};
 use dotenv::dotenv;
 use std::env;
 use tokio::fs;
-use std::io::{self, Read, Write};
 use rand::{RngCore, rng};
-use hex::{encode, decode};
+use hex::{/*encode*/ decode};
 use log::error;
 use std::path::Path;
-use serde_json;
 use crate::models::{Aes, AesError};
 
 impl Aes {

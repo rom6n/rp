@@ -5,9 +5,7 @@ use argon2::{
         PasswordHash, SaltString
     },
 };
-
 use tokio::task::spawn_blocking;
-use std::sync::Arc;
 
 use crate::models::{Argon, ArgonError};
 use log::error;

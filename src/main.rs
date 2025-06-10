@@ -1,19 +1,16 @@
 use axum::{
-    body::Body, response::{IntoResponse, Html, Json, Response, Redirect},
-    extract::{OriginalUri, DefaultBodyLimit, Request, State, ConnectInfo},
-    http::{Uri, StatusCode}, 
-    handler, middleware, 
-    routing::{delete, get, post, put}, 
+    body::Body, response::Response,
+    extract::{DefaultBodyLimit, Request},
+    routing::get, 
     Router
 };
-use tokio::time::Duration;
 use env_logger;
-use tower::{buffer::BufferLayer, layer, limit::ConcurrencyLimitLayer, load_shed::LoadShedLayer, service_fn, spawn_ready, timeout::TimeoutLayer, ServiceBuilder, ServiceExt};
+use tower::{limit::ConcurrencyLimitLayer, 
+    service_fn, ServiceBuilder};
 use tower_http::{services::ServeFile, trace::TraceLayer, compression::CompressionLayer};
-use std::{convert::Infallible, io, net::SocketAddr};
+use std::{convert::Infallible, net::SocketAddr};
 use tracing::info_span;
 use std::sync::Arc;
-
 
 use rp::models::*;
 use rp::handlers::*;

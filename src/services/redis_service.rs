@@ -1,7 +1,5 @@
 use deadpool_redis::redis::AsyncCommands;
-use deadpool_redis::{Config as RedisConfig, Pool, PoolError, redis::RedisError};
-use redis::RedisResult;
-use axum::extract::State;
+use deadpool_redis::{Config as RedisConfig, Pool, redis::RedisError};
 use std::{result::Result, sync::Arc};
 use log::{error, info};
 

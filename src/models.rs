@@ -1,12 +1,7 @@
-use axum::{extract::{FromRequest, FromRequestParts}, http::{HeaderMap, request::Parts}};
-use cookie::time::error;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use sqlx::{prelude::FromRow, PgPool};
 use thiserror::Error;
-use aes_gcm::{Key, Aes256Gcm};
-use argon2::password_hash;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExampleData {
@@ -18,7 +13,7 @@ pub struct ExampleData {
 pub struct Foo(pub &'static str);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct  Claims {
+pub struct Claims {
     pub sub: String,
     pub iss: String,
     pub aud: String,
@@ -136,9 +131,7 @@ pub enum CustomRedisError {
     DeleteError,
 }
 
-pub struct Aes {
-    key: Key<Aes256Gcm>
-}
+pub struct Aes;
 
 #[derive(Debug, Clone, Error)]
 pub enum AesError {

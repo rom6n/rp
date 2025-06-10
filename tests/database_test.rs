@@ -1,12 +1,6 @@
 use rp::models::*;
-use rp::services::*;
-use rp::handlers::*;
-use pretty_assertions::{assert_eq, assert_ne};
 use rand::random;
-use sqlx::error::DatabaseError;
-use sqlx::Transaction;
 use std::sync::Arc;
-use log::info;
 use std::time::Instant;
 
 #[tokio::test]
